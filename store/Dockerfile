@@ -1,9 +1,9 @@
 FROM python:3.9-slim
 WORKDIR /app
-
-# Copy store code and ensure the log file exists
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 COPY store.py .
+# ensure the log file exists
 RUN touch log.txt
-
-# Run the store script (you'll likely replace this with a long-running server later)
+EXPOSE 9000
 CMD ["python", "store.py"]
