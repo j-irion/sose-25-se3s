@@ -1,13 +1,19 @@
 # api/app.py
-from flask import Flask, jsonify
-import requests
+from flask import Flask, jsonify, abort
+import os, requests
+from shard import ConsistentHash
 
-STORE_URL = "http://store:9000/store/counter"
 app = Flask(__name__)
+QUEUE_URL = "http://queue:7000/enqueue"
+
+# Configure via env var, comma-separated:
+nodes = os.getenv("STORE_NODES", "http://store1:9000,http://store2:9000").split(",")
+ring = ConsistentHash(nodes)
 
 @app.route("/counter", methods=["GET"])
 def get_counter():
-    resp = requests.get(STORE_URL)
+    node = ring.get_node("counter")
+    resp = requests.get(f"{node}/store/counter")
     if resp.status_code == 404:
         return jsonify({"value": 0}), 200
     resp.raise_for_status()
@@ -15,18 +21,11 @@ def get_counter():
 
 @app.route("/counter/increment", methods=["POST"])
 def increment_counter():
-    # fetch current
-    resp = requests.get(STORE_URL)
-    if resp.status_code == 404:
-        current = 0
-    else:
-        resp.raise_for_status()
-        current = int(resp.json().get("value", 0))
-    new = current + 1
-    # persist new
-    post = requests.post(STORE_URL, json={"value": new})
-    post.raise_for_status()
-    return jsonify({"value": new}), 200
+    resp = requests.post(QUEUE_URL, json={"action": "increment"})
+    if resp.status_code == 429:
+        abort(429, "Too many requests – queue is full")
+    resp.raise_for_status()
+    return jsonify({"status": "queued"}), 202
 
 @app.route("/health", methods=["GET"])
 def health():
