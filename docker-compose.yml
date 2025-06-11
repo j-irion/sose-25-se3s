@@ -1,17 +1,52 @@
 version: "3.8"
+
 services:
-  store:
+  store1-primary:
     build: ./store
+    environment:
+      - LOG_PATH=log1.txt
+      - SECONDARIES=http://store1-secondary:9000
     ports:
       - "9000:9000"
+
+  store1-secondary:
+    build: ./store
+    environment:
+      - LOG_PATH=log1-secondary.txt
+    ports:
+      - "9010:9000"
+
+  store2-primary:
+    build: ./store
+    environment:
+      - LOG_PATH=log2.txt
+      - SECONDARIES=http://store2-secondary:9000
+    ports:
+      - "9001:9000"
+
+  store2-secondary:
+    build: ./store
+    environment:
+      - LOG_PATH=log2-secondary.txt
+    ports:
+      - "9011:9000"
 
   api:
     build: ./api
     depends_on:
-      - store
+      - store1-primary
+      - store2-primary
+    environment:
+      # Both primaries listen on container port 9000
+      - STORE_NODES=http://store1-primary:9000,http://store2-primary:9000
     ports:
       - "8000:8000"
 
   queue:
     build: ./queue
-    # not yet used in the MVP
+    depends_on:
+      - store1-primary
+    environment:
+      # Point to the primary’s internal address & endpoint
+      - STORE_URL=http://store1-primary:9000/store/counter
+    # no ports exposed; internal-only
