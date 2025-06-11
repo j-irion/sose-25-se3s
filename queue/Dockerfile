@@ -1,10 +1,7 @@
 FROM python:3.9-slim
 WORKDIR /app
-
-# Copy the worker code
-COPY worker.py .
-
-# No extra dependencies yet
-
-# Run the worker
-CMD ["python", "worker.py"]
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app.py .
+EXPOSE 7000
+CMD ["python", "app.py"]
