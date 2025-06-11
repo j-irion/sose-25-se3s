@@ -1,9 +1,17 @@
+version: "3.8"
 services:
-  api:
-    build: ./api
-    ports:
-      - "8000:8000"
-  queue:
-    build: ./queue
   store:
     build: ./store
+    ports:
+      - "9000:9000"
+
+  api:
+    build: ./api
+    depends_on:
+      - store
+    ports:
+      - "8000:8000"
+
+  queue:
+    build: ./queue
+    # not yet used in the MVP
