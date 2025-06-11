@@ -1,15 +1,26 @@
 # store/store.py
+
 from flask import Flask, request, jsonify, abort
 import os
+import threading
+import requests
 
-LOG_PATH = "log.txt"
+# Configuration via environment variables
+LOG_PATH        = os.getenv("LOG_PATH", "log.txt")
+SECONDARIES_RAW = os.getenv("SECONDARIES", "")
+SECONDARIES    = [url for url in SECONDARIES_RAW.split(",") if url]
+STORE_PORT      = int(os.getenv("STORE_PORT", "9000"))
+
+# Thread‐safety lock for store operations
+STORE_LOCK = threading.Lock()
 
 class SimpleStore:
-    def __init__(self, log_path=LOG_PATH):
+    def __init__(self, log_path):
         self.data = {}
         self.log_path = log_path
-        # ensure log exists
+        # ensure log file exists
         open(self.log_path, "a").close()
+        # replay any existing entries to rebuild in-memory state
         self._replay_log()
 
     def _replay_log(self):
@@ -25,25 +36,47 @@ class SimpleStore:
                     self.data[key] = val
 
     def append(self, key, value):
-        self.data[key] = value
-        with open(self.log_path, "a") as f:
-            f.write(f"{key}:{value}\n")
+        with STORE_LOCK:
+            # update in-memory
+            self.data[key] = value
+            # append to disk log
+            with open(self.log_path, "a") as f:
+                f.write(f"{key}:{value}\n")
+        # trigger async replication
+        threading.Thread(target=self._replicate, args=(key, value), daemon=True).start()
 
     def delete(self, key):
-        existed = key in self.data
-        self.data.pop(key, None)
-        with open(self.log_path, "a") as f:
-            f.write(f"{key}:__deleted__\n")
+        with STORE_LOCK:
+            existed = key in self.data
+            self.data.pop(key, None)
+            with open(self.log_path, "a") as f:
+                f.write(f"{key}:__deleted__\n")
+        # replicate deletion
+        threading.Thread(target=self._replicate, args=(key, "__deleted__"), daemon=True).start()
         return existed
 
-store = SimpleStore()
-app = Flask(__name__)
+    def _replicate(self, key, value):
+        """POST the same change to each secondary, fire-and-forget."""
+        for secondary in SECONDARIES:
+            try:
+                requests.post(
+                    f"{secondary}/store/{key}",
+                    json={"value": value},
+                    timeout=1
+                )
+            except Exception:
+                # ignore failures; secondary will catch up from its own log if needed
+                pass
+
+# initialize
+store = SimpleStore(LOG_PATH)
+app   = Flask(__name__)
 
 @app.route("/store/<key>", methods=["POST"])
 def write_key(key):
     body = request.get_json()
-    if body is None or "value" not in body:
-        abort(400, "JSON must include a ‘value’ field")
+    if not body or "value" not in body:
+        abort(400, description="Request JSON must include a 'value' field")
     val = str(body["value"])
     store.append(key, val)
     return jsonify({"key": key, "value": val}), 201
@@ -63,4 +96,4 @@ def delete_key(key):
 
 if __name__ == "__main__":
     # listen on all interfaces for Docker
-    app.run(host="0.0.0.0", port=9000)
+    app.run(host="0.0.0.0", port=STORE_PORT)
