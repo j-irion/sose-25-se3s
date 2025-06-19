@@ -7,7 +7,7 @@ by Julius Irion (456782) and Johannes Marold (XXXX)
 ```sh
 docker compose down
 
-MAX_QUEUE_SIZE=100 WORKER_COUNT=1 docker compose up --build --remove-orphans
+MAX_QUEUE_SIZE=100 WORKER_COUNT=1 SPILLOVER_QUEUE_SIZE=100 docker compose up --build --remove-orphans
 ```
 
 ## 1. Health Check
@@ -30,23 +30,43 @@ curl -i http://localhost:8000/counter/foo
 # → {"key":"foo","value":1}
 ```
 
-## 3. Back-pressure
+## 3. Back-pressure with spillover queue
 
+### a) too many requests
 ```sh
 # 200 requests, 50 each concurrently
 seq 1 200 \
   | xargs -n1 -P50 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
       -X POST http://localhost:8000/counter/bar/increment \
   | sort | uniq -c
+
+```
+
+### b) mixed rate test
+```sh
+# Send 200 increments to key=hotkey, and 5 to key=chill
+seq 1 100 \
+  | xargs -n1 -P50 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
+      -X POST http://localhost:8000/counter/bar/increment \
+  | sort | uniq -c
+
+seq 1 10 \
+  | xargs -n1 -P10 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
+      -X POST http://localhost:8000/counter/foo/increment \
+  | sort | uniq -c
+```
+
+```sh
+# Confirm spillover queue usage only for bar, 
+docker compose logs queue | grep "→ spillover"
 ```
 
 ## 4. Tune queue & no more 429s
 
 ```sh
-# Increase capacity & workers on the fly:
+# Restart with larger queues and more workers
 docker compose down
-# Override env and scale workers to 4:
-MAX_QUEUE_SIZE=1000 WORKER_COUNT=4 docker compose up --build
+MAX_QUEUE_SIZE=1000 SPILLOVER_QUEUE_SIZE=500 WORKER_COUNT=4 docker compose up --build
 ```
 
 ```sh
