@@ -46,24 +46,25 @@ def enqueue():
 
     key = job["key"]
     now = time.time()
-    timestamps = KEY_TIMESTAMPS[key]
 
     # Clean old timestamps (older than 10s)
-    KEY_TIMESTAMPS[key] = [t for t in timestamps if now - t < 10]
+    KEY_TIMESTAMPS[key] = [t for t in KEY_TIMESTAMPS[key] if now - t < 10]
+    KEY_TIMESTAMPS[key].append(now)
+    timestamps = KEY_TIMESTAMPS[key]
+    print(f"length of timestamps with {key} = {len(timestamps)}")
 
-    if len(KEY_TIMESTAMPS[key]) >= MAX_KEY_RATE:
+    if len(timestamps) > MAX_KEY_RATE:
         with LOCK:
             if len(EXCESS_QUEUE) >= EXCESS_QUEUE.maxlen:
                 abort(429, description="Excess queue is full")
             EXCESS_QUEUE.append(job)
-            print(f"[enqueue] {key} → spillover:EXCESS_QUEUE (rate limit)")
-            return jsonify({"status": "sidelined:rate"}), 200
+            print(f"[enqueue] sidelined {key} to EXCESS_QUEUE (rate limit of {MAX_KEY_RATE} requests per key reached)")
+            return jsonify({"status": "sidelined:rate"}), 202
 
     with LOCK:
         if len(QUEUE) >= QUEUE.maxlen:
             abort(429, description="Queue is full")
         QUEUE.append(job)
-        KEY_TIMESTAMPS[key].append(now)
 
     return jsonify({"status": "enqueued"}), 202
 
@@ -76,7 +77,7 @@ def worker():
                 job = QUEUE.popleft()
 
         if not job:
-            time.sleep(0.1)
+            #time.sleep(0.1)
             continue
 
         # Age-based sidelining

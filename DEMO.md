@@ -45,20 +45,24 @@ seq 1 200 \
 ### b) mixed rate test
 ```sh
 # Send 200 increments to key=hotkey, and 5 to key=chill
-seq 1 100 \
-  | xargs -n1 -P50 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
-      -X POST http://localhost:8000/counter/bar/increment \
+seq 1 51 \
+  | xargs -n1 -P52 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
+      -X POST http://localhost:8000/counter/hotkey/increment \
   | sort | uniq -c
 
 seq 1 10 \
   | xargs -n1 -P10 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
-      -X POST http://localhost:8000/counter/foo/increment \
+      -X POST http://localhost:8000/counter/chill/increment \
   | sort | uniq -c
 ```
 
 ```sh
 # Confirm spillover queue usage only for bar, 
-docker compose logs queue | grep "→ spillover"
+docker compose logs queue | grep "sidelined"
+```
+
+```sh
+docker compose logs queue | grep "length"
 ```
 
 ## 4. Tune queue & no more 429s
