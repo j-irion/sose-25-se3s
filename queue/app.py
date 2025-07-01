@@ -4,8 +4,17 @@ from flask import Flask, request, jsonify, abort
 import threading, time, os, requests
 from shard import ConsistentHash
 from collections import defaultdict, deque
+import logging
 
 app = Flask(__name__)
+
+# ─── Configuration of logger ───────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -16,11 +25,12 @@ SPILLOVER_QUEUE_SIZE= int(os.getenv("SPILLOVER_QUEUE_SIZE", "100"))
 
 # limits for main queue system
 MAX_QUEUE_SIZE = int(os.getenv("MAX_QUEUE_SIZE", "100"))
-print("MAX_QUEUE_SIZE:", MAX_QUEUE_SIZE)
+logging.log(logging.INFO, f"MAX_QUEUE_SIZE: {MAX_QUEUE_SIZE}")
 WORKER_COUNT  = int(os.getenv("WORKER_COUNT",     "1"))
-print("WORKER_COUNT:", WORKER_COUNT)
+logging.log(logging.INFO, f"WORKER_COUNT: {WORKER_COUNT}")
 QUEUE_PORT    = int(os.getenv("QUEUE_PORT",      "7000"))
 STORE_NODES   = os.getenv("STORE_NODES",         "").split(",")
+MAX_STALE_RETRIES = int(os.getenv("MAX_STALE_RETRIES", "3"))
 
 # Build the consistent-hash ring over all primaries
 ring = ConsistentHash(STORE_NODES)
@@ -51,14 +61,14 @@ def enqueue():
     KEY_TIMESTAMPS[key] = [t for t in KEY_TIMESTAMPS[key] if now - t < 10]
     KEY_TIMESTAMPS[key].append(now)
     timestamps = KEY_TIMESTAMPS[key]
-    print(f"length of timestamps with {key} = {len(timestamps)}")
+    logging.log(logging.WARNING, f"length of timestamps with {key} = {len(timestamps)}")
 
     if len(timestamps) > MAX_KEY_RATE:
         with LOCK:
             if len(EXCESS_QUEUE) >= EXCESS_QUEUE.maxlen:
                 abort(429, description="Excess queue is full")
             EXCESS_QUEUE.append(job)
-            print(f"[enqueue] sidelined {key} to EXCESS_QUEUE (rate limit of {MAX_KEY_RATE} requests per key reached)")
+            logging.warning(f"[enqueue] sidelined {key} to EXCESS_QUEUE (rate limit of {MAX_KEY_RATE} requests per key reached)")
             return jsonify({"status": "sidelined:rate"}), 202
 
     with LOCK:
@@ -77,7 +87,7 @@ def worker():
                 job = QUEUE.popleft()
 
         if not job:
-            #time.sleep(0.1)
+            time.sleep(0.05)
             continue
 
         # Age-based sidelining
@@ -87,28 +97,28 @@ def worker():
                 if len(STALE_QUEUE) >= STALE_QUEUE.maxlen:
                     abort(429, description="Stale queue is full")
                 STALE_QUEUE.append(job)
-                print(f"[worker] sidelined key={job['key']} to STALE_QUEUE (age {age:.2f}s)")
+                logging.warning(f"[worker] sidelined key={job['key']} to STALE_QUEUE (age {age:.2f}s)")
                 continue
-
-        process_job(job)
+        else:
+            process_job(job)
 
 
 def process_job(job):
     action = job["action"]
     key = job["key"]
     if action != "increment":
-        print(f"[worker] unknown action: {action}")
+        logging.exception(msg=f"[worker] unknown action: {action}")
         return
 
     node = ring.get_node(key)
-    print(f"[worker] routing key={key} → node={node}")
+    logging.log(logging.INFO, f"[worker] routing key={key} → node={node}")
     store_url = f"{node}/store/{key}"
 
     try:
         resp = requests.get(store_url)
         current = 0 if resp.status_code == 404 else int(resp.json().get("value", 0))
     except Exception as e:
-        print(f"[worker] fetch error ({key}@{node}): {e}")
+        logging.exception(f"[worker] fetch error ({key}@{node}): {e}")
         return
 
     new_value = current + 1
@@ -116,24 +126,46 @@ def process_job(job):
         post = requests.post(store_url, json={"value": new_value})
         post.raise_for_status()
     except Exception as e:
-        print(f"[worker] persist error ({key}@{node}): {e}")
+        logging.exception(f"[worker] persist error ({key}@{node}): {e}")
 
-def spillover_worker(queue_name, spillover_queue):
+def excess_worker():
     while True:
         with LOCK:
-            if len(QUEUE) < MAX_QUEUE_SIZE and spillover_queue:
-                job = spillover_queue.popleft()
-                print(f"[spillover_worker] retrying {job['key']} from {queue_name}")
+            if len(QUEUE) < MAX_QUEUE_SIZE and EXCESS_QUEUE:
+                job = EXCESS_QUEUE.popleft()
+                logging.log(logging.INFO, f"[excess worker] retrying {job['key']}")
                 QUEUE.append(job)
         time.sleep(0.05)
 
+
+def stale_worker():
+    while True:
+        job = None
+        with LOCK:
+            if STALE_QUEUE:
+                job = STALE_QUEUE.popleft()
+
+        if not job:
+            time.sleep(0.1)
+            continue
+
+        job["retries"] = job.get("retries", 0) + 1
+        if job["retries"] > MAX_STALE_RETRIES:
+            logging.warning(f"Dropping stale job key={job['key']} after {job['retries']} retries")
+            continue
+
+        # Optional: sleep to reduce pressure (backoff)
+        time.sleep(0.2)
+
+        process_job(job)
 
 if __name__ == "__main__":
     # Start WORKER_COUNT background threads
     for _ in range(WORKER_COUNT):
         threading.Thread(target=worker, daemon=True).start()
 
-    threading.Thread(target=spillover_worker, args=("EXCESS_QUEUE", EXCESS_QUEUE), daemon=True).start()
-    threading.Thread(target=spillover_worker, args=("STALE_QUEUE", STALE_QUEUE), daemon=True).start()
+    # start one WORKER for the excess_queue and one for the stale_queue
+    threading.Thread(target=excess_worker, daemon=True).start()
+    threading.Thread(target=stale_worker, daemon=True).start()
 
     app.run(host="0.0.0.0", port=QUEUE_PORT)

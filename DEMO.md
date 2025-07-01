@@ -42,10 +42,17 @@ seq 1 200 \
 
 ```
 
+```sh
+# view STALE_QUEUE
+docker compose logs -f queue | grep "STALE_QUEUE"
+
+```
+
 ### b) mixed rate test
 ```sh
-# Send 200 increments to key=hotkey, and 5 to key=chill
-seq 1 51 \
+# Send 52 increments to key=hotkey, and 5 to key=chill
+# EXCESS THRESHOLD=50 should lead to 2 requests moved to EXCESS_QUEUE from hotkey
+seq 1 52 \
   | xargs -n1 -P52 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
       -X POST http://localhost:8000/counter/hotkey/increment \
   | sort | uniq -c
@@ -57,12 +64,8 @@ seq 1 10 \
 ```
 
 ```sh
-# Confirm spillover queue usage only for bar, 
-docker compose logs queue | grep "sidelined"
-```
-
-```sh
-docker compose logs queue | grep "length"
+# Confirm spillover queue usage only for hotkey
+docker compose logs queue | grep "EXCESS_QUEUE"
 ```
 
 ## 4. Tune queue & no more 429s
