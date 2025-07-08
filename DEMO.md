@@ -33,6 +33,7 @@ curl -i http://localhost:8000/counter/foo
 ## 3. Back-pressure with spillover queue
 
 ### a) too many requests
+
 ```sh
 # 200 requests, 50 each concurrently
 seq 1 200 \
@@ -49,6 +50,7 @@ docker compose logs -f queue | grep "STALE_QUEUE"
 ```
 
 ### b) mixed rate test
+
 ```sh
 # Send 52 increments to key=hotkey, and 5 to key=chill
 # EXCESS THRESHOLD=50 should lead to 2 requests moved to EXCESS_QUEUE from hotkey
@@ -65,7 +67,12 @@ seq 1 10 \
 
 ```sh
 # Confirm spillover queue usage only for hotkey
-docker compose logs queue | grep "EXCESS_QUEUE"
+docker compose logs queue | grep "hotkey to EXCESS_QUEUE"
+```
+
+```sh
+# Confirm spillover queue usage not for chill
+docker compose logs queue | grep "chill to EXCESS_QUEUE"
 ```
 
 ## 4. Tune queue & no more 429s
@@ -87,8 +94,8 @@ seq 1 200 \
 ## 5. Sharding Test
 
 ```sh
-# Push 500 increments each to A and B in parallel
-for i in $(seq 1 500); do
+# Push 50 increments each to A and B in parallel
+for i in $(seq 1 50); do
   curl -s -X POST http://localhost:8000/counter/A/increment &
   curl -s -X POST http://localhost:8000/counter/B/increment &
 done
@@ -130,7 +137,7 @@ docker compose stop store1-primary
 ```sh
 
 # Reads for A should still work (served by secondary)
-curl -i http://localhost:8000/counter/A
+curl -i http://localhost:8000/counter/B
 ```
 
 ```sh
@@ -144,8 +151,8 @@ docker compose start store1-primary
 # Restart shard2 primary
 docker compose restart store2-primary
 
-# After a few seconds for log-replay, B persists
-curl http://localhost:8000/counter/B
+# After a few seconds for log-replay, A persists
+curl http://localhost:8000/counter/A
 ```
 
 ## 10. Horizontal scaling of API
