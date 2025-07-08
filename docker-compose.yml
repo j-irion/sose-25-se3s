@@ -5,14 +5,14 @@ services:
       - LOG_PATH=log1.txt
       - SECONDARIES=http://store1-secondary:9000
     ports:
-      - "9000:9000"
+      - '9000:9000'
 
   store1-secondary:
     build: ./store
     environment:
       - LOG_PATH=log1-secondary.txt
     ports:
-      - "9010:9000"
+      - '9010:9000'
 
   store2-primary:
     build: ./store
@@ -20,14 +20,14 @@ services:
       - LOG_PATH=log2.txt
       - SECONDARIES=http://store2-secondary:9000
     ports:
-      - "9001:9000"
+      - '9001:9000'
 
   store2-secondary:
     build: ./store
     environment:
       - LOG_PATH=log2-secondary.txt
     ports:
-      - "9011:9000"
+      - '9011:9000'
 
   api:
     build: ./api
@@ -36,10 +36,11 @@ services:
       - store2-primary
     environment:
       - STORE_NODES=http://store1-primary:9000,http://store2-primary:9000
+      - STORE_SECONDARIES=http://store1-secondary:9000,http://store2-secondary:9000
       - STORE_KEY=counter
       - QUEUE_URL=http://queue:7000/enqueue
     ports:
-      - "8000"
+      - '8000'
 
   queue:
     build: ./queue
@@ -63,7 +64,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8000:80"
+      - '8000:80'
     depends_on:
       - api
     volumes:

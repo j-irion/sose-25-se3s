@@ -8,8 +8,9 @@ from shard import ConsistentHash
 app = Flask(__name__)
 
 # ─── Configuration ─────────────────────────────────────────────────────────
-STORE_NODES = os.getenv("STORE_NODES", "").split(",")
-QUEUE_URL   = os.getenv("QUEUE_URL",   "http://queue:7000/enqueue")
+STORE_NODES      = [n for n in os.getenv("STORE_NODES", "").split(",") if n]
+SECONDARY_NODES  = [n for n in os.getenv("STORE_SECONDARIES", "").split(",") if n]
+QUEUE_URL        = os.getenv("QUEUE_URL",   "http://queue:7000/enqueue")
 
 # Build the consistent-hash ring for sharding
 ring = ConsistentHash(STORE_NODES)
@@ -23,7 +24,15 @@ def health():
 @app.route("/counter/<key>", methods=["GET"])
 def get_counter(key):
     node = ring.get_node(key)
-    resp = requests.get(f"{node}/store/{key}")
+    idx = STORE_NODES.index(node) if node in STORE_NODES else -1
+    secondary = SECONDARY_NODES[idx] if idx >= 0 and idx < len(SECONDARY_NODES) else None
+    try:
+        resp = requests.get(f"{node}/store/{key}")
+    except requests.exceptions.ConnectionError:
+        if secondary:
+            resp = requests.get(f"{secondary}/store/{key}")
+        else:
+            abort(503, description="Primary unreachable")
     if resp.status_code == 404:
         return jsonify({"key": key, "value": 0}), 200
     resp.raise_for_status()

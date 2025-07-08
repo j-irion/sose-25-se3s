@@ -136,7 +136,7 @@ docker compose stop store1-primary
 
 ```sh
 
-# Reads for A should still work (served by secondary)
+# Reads for B continue from the secondary
 curl -i http://localhost:8000/counter/B
 ```
 
