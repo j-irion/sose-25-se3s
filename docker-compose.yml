@@ -11,6 +11,7 @@ services:
     build: ./store
     environment:
       - LOG_PATH=log1-secondary.txt
+      - PRIMARY_URL=http://store1-primary:9000
     ports:
       - '9010:9000'
 
@@ -26,6 +27,7 @@ services:
     build: ./store
     environment:
       - LOG_PATH=log2-secondary.txt
+      - PRIMARY_URL=http://store2-primary:9000
     ports:
       - '9011:9000'
 

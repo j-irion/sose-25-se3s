@@ -112,21 +112,13 @@ def process_job(job):
 
     node = ring.get_node(key)
     logging.log(logging.INFO, f"[worker] routing key={key} → node={node}")
-    store_url = f"{node}/store/{key}"
+    store_url = f"{node}/store/{key}/increment"
 
     try:
-        resp = requests.get(store_url)
-        current = 0 if resp.status_code == 404 else int(resp.json().get("value", 0))
-    except Exception as e:
-        logging.exception(f"[worker] fetch error ({key}@{node}): {e}")
-        return
-
-    new_value = current + 1
-    try:
-        post = requests.post(store_url, json={"value": new_value})
+        post = requests.post(store_url)
         post.raise_for_status()
     except Exception as e:
-        logging.exception(f"[worker] persist error ({key}@{node}): {e}")
+        logging.exception(f"[worker] increment error ({key}@{node}): {e}")
 
 def excess_worker():
     while True:

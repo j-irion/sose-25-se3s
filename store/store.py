@@ -4,12 +4,20 @@ from flask import Flask, request, jsonify, abort
 import os
 import threading
 import requests
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # Configuration via environment variables
 LOG_PATH        = os.getenv("LOG_PATH", "log.txt")
 SECONDARIES_RAW = os.getenv("SECONDARIES", "")
 SECONDARIES    = [url for url in SECONDARIES_RAW.split(",") if url]
 STORE_PORT      = int(os.getenv("STORE_PORT", "9000"))
+PRIMARY_URL = os.getenv("PRIMARY_URL")
 
 # Thread‐safety lock for store operations
 STORE_LOCK = threading.Lock()
@@ -22,6 +30,34 @@ class SimpleStore:
         open(self.log_path, "a").close()
         # replay any existing entries to rebuild in-memory state
         self._replay_log()
+
+        if PRIMARY_URL:
+            threading.Thread(target=self._reconcile_loop, daemon=True).start()
+
+    def _reconcile_loop(self):
+        import time
+        while True:
+            time.sleep(10)
+            if not PRIMARY_URL:
+                continue
+
+            for key in list(self.data.keys()):
+                try:
+                    resp = requests.get(f"{PRIMARY_URL}/store/{key}", timeout=1)
+                    if resp.status_code != 200:
+                        logging.log(logging.INFO, f"[RECONCILE] Skipping key={key} (primary gave status {resp.status_code})")
+                        continue
+                    primary_val = resp.json().get("value")
+                    with STORE_LOCK:
+                        local_val = self.data.get(key)
+                        if int(primary_val) > int(local_val):
+                            logging.log(logging.INFO,f"[RECONCILE] Updating key={key} from {local_val} → {primary_val}")
+                            self.data[key] = primary_val
+                            with open(self.log_path, "a") as f:
+                                f.write(f"{key}:{primary_val}\n")
+                except Exception as e:
+                    logging.log(logging.INFO,f"[RECONCILE] Could not contact primary for key={key}: {e}")
+                    continue
 
     def _replay_log(self):
         with open(self.log_path, "r") as f:
@@ -44,6 +80,17 @@ class SimpleStore:
                 f.write(f"{key}:{value}\n")
         # trigger async replication
         threading.Thread(target=self._replicate, args=(key, value), daemon=True).start()
+
+    def increment(self, key, delta=1):
+        """Atomically increment a key by ``delta``."""
+        with STORE_LOCK:
+            current = int(self.data.get(key, "0"))
+            new_value = current + delta
+            self.data[key] = str(new_value)
+            with open(self.log_path, "a") as f:
+                f.write(f"{key}:{self.data[key]}\n")
+        threading.Thread(target=self._replicate, args=(key, self.data[key]), daemon=True).start()
+        return new_value
 
     def delete(self, key):
         with STORE_LOCK:
@@ -80,6 +127,11 @@ def write_key(key):
     val = str(body["value"])
     store.append(key, val)
     return jsonify({"key": key, "value": val}), 201
+
+@app.route("/store/<key>/increment", methods=["POST"])
+def increment_key(key):
+    new_val = store.increment(key)
+    return jsonify({"key": key, "value": str(new_val)}), 201
 
 @app.route("/store/<key>", methods=["GET"])
 def read_key(key):
