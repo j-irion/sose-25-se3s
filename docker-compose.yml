@@ -55,11 +55,8 @@ services:
       - STORE_NODES=http://store1-primary:9000,http://store2-primary:9000
       - STORE_KEY=counter
       - QUEUE_URL=http://queue:7000/enqueue
-      # Use host’s MAX_QUEUE_SIZE if set, otherwise default to 100
       - MAX_QUEUE_SIZE=${MAX_QUEUE_SIZE:-100}
-      # Use host’s SPILLOVER_QUEUE_SIZE if set, otherwise default to 100
       - SPILLOVER_QUEUE_SIZE=${SPILLOVER_QUEUE_SIZE:-100}
-      # Use host’s WORKER_COUNT if set, otherwise default to 1
       - WORKER_COUNT=${WORKER_COUNT:-1}
       - QUEUE_PORT=7000
 
