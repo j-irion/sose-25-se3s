@@ -1,8 +1,8 @@
 # sose-25-se3s Prototyping Assignment
 
-A sharded, replicated, and resilient **scalable counter** system built with Flask, Consistent Hashing, and Docker. 
-Supports horizontal and vertical scaling, replication for high availability, 
-and a write queue with strategy for sidelining traffic.
+A sharded, replicated, and resilient **scalable counter** system. 
+Supports horizontal and vertical scaling, replication for high availability, sharding for isolation,
+and a write queue with mitigation strategy for sidelining traffic.
 
 ---
 
@@ -10,30 +10,31 @@ and a write queue with strategy for sidelining traffic.
 
 This system consists of:
 
-- **Store Nodes** (primary & secondary): Persistent key-value stores.
-- **Queue**: Accepts and rate-limits write requests.
+- **Store Nodes** (primary & secondary): Persistent key-value stores with asynchronous primary copy replication
+for fallback.
+- **Queue**: Handles write requests with rate limiting and spillover strategies for excess and stale jobs.
 - **API**: Front-facing service handling reads and forwarding writes to the queue.
 - **Nginx**: Reverse proxy to route requests to the API.
 - **Consistent Hashing**: Used to determine which store node is responsible for a given key.
 
 ```scss
-           ┌────────────┐
-           │   Client   │
-           └─────┬──────┘
+           ┌───────────┐
+           │   Client  │
+           └─────┬─────┘
                  │
             ┌────▼────┐
-            │  NGINX  │ (port 8000)
+            │  NGINX  │
             └────┬────┘
                  │
             ┌────▼────┐
-            │   API   │ (Flask app)
+            │   API   │
             └────┬────┘
          ┌───────┴────────┐
-         │   Queue (Flask)│
+         │     Queue      │
          └───────┬────────┘ 
     ┌────────────▼────────────┐
     │     Store Primaries     │
-    │(store1 & store2 @ :9000)│
+    │    (store1 & store2)    │
     └───────────┬─────────────┘
       ┌─────────▼───────────┐
       │  Store Secondaries  │
