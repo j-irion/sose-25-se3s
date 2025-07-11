@@ -16,7 +16,7 @@ This system consists of:
 - **Nginx**: Reverse proxy to route requests to the API.
 - **Consistent Hashing**: Used to determine which store node is responsible for a given key.
 
-
+```scss
            ┌────────────┐
            │   Client   │
            └─────┬──────┘
@@ -39,6 +39,8 @@ This system consists of:
       │  Store Secondaries  │
       │ (replicated async)  │
       └─────────────────────┘
+
+```
 
 ## Quick Start
 ### 1. Start the API
