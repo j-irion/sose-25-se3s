@@ -1,4 +1,3 @@
-# api/shard.py
 import bisect
 import hashlib
 

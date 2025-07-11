@@ -1,5 +1,3 @@
-# queue/app.py
-
 import logging
 import os
 import requests
@@ -13,22 +11,16 @@ from shard import ConsistentHash
 
 app = Flask(__name__)
 
-# ─── Configuration of logger ───────────────────────────────────────────────
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# ─── Configuration ─────────────────────────────────────────────────────────
-
-# limits for spillover queues
 MAX_KEY_RATE = int(os.getenv("MAX_KEY_RATE", "50"))  # per-10-seconds key limit
 STALE_THRESHOLD_SEC = int(os.getenv("STALE_THRESHOLD_SEC", "5"))  # age in seconds before sidelining
 SPILLOVER_QUEUE_SIZE= int(os.getenv("SPILLOVER_QUEUE_SIZE", "100"))
 
-# limits for main queue system
 MAX_QUEUE_SIZE = int(os.getenv("MAX_QUEUE_SIZE", "100"))
 logging.log(logging.INFO, f"MAX_QUEUE_SIZE: {MAX_QUEUE_SIZE}")
 WORKER_COUNT  = int(os.getenv("WORKER_COUNT",     "1"))
@@ -37,14 +29,11 @@ QUEUE_PORT    = int(os.getenv("QUEUE_PORT",      "7000"))
 STORE_NODES   = os.getenv("STORE_NODES",         "").split(",")
 MAX_STALE_RETRIES = int(os.getenv("MAX_STALE_RETRIES", "3"))
 
-# Build the consistent-hash ring over all primaries
 ring = ConsistentHash(STORE_NODES)
 
-# Thread-safe in-memory queue
 QUEUE = deque(maxlen=MAX_QUEUE_SIZE)
 LOCK  = threading.Lock()
 
-# spillover queues as mitigation strategy
 EXCESS_QUEUE = deque(maxlen=SPILLOVER_QUEUE_SIZE)
 STALE_QUEUE = deque(maxlen=SPILLOVER_QUEUE_SIZE)
 
@@ -194,11 +183,9 @@ def stale_worker():
         process_job(job)
 
 if __name__ == "__main__":
-    # Start WORKER_COUNT background threads
     for _ in range(WORKER_COUNT):
         threading.Thread(target=worker, daemon=True).start()
 
-    # start one WORKER for the excess_queue and one for the stale_queue
     threading.Thread(target=excess_worker, daemon=True).start()
     threading.Thread(target=stale_worker, daemon=True).start()
 

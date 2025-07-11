@@ -1,4 +1,3 @@
-# queue/shard.py
 import bisect
 import hashlib
 

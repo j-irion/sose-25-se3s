@@ -1,5 +1,3 @@
-# store/store.py
-
 from flask import Flask, request, jsonify, abort
 import os
 import threading
@@ -12,14 +10,12 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# Configuration via environment variables
 LOG_PATH        = os.getenv("LOG_PATH", "log.txt")
 SECONDARIES_RAW = os.getenv("SECONDARIES", "")
 SECONDARIES    = [url for url in SECONDARIES_RAW.split(",") if url]
 STORE_PORT      = int(os.getenv("STORE_PORT", "9000"))
 PRIMARY_URL = os.getenv("PRIMARY_URL")
 
-# Thread‐safety lock for store operations
 STORE_LOCK = threading.Lock()
 
 class SimpleStore:
@@ -47,6 +43,20 @@ class SimpleStore:
             threading.Thread(target=self._reconcile_loop, daemon=True).start()
 
     def _reconcile_loop(self):
+        """
+        Periodically reconcile the local store with the primary store.
+
+        This method runs in an infinite loop, checking every 10 seconds if the primary
+        store is available. For each key in the local store, it attempts to fetch the
+        corresponding value from the primary store. If the value in the primary store
+        is greater than the local value, the local store is updated to match the primary.
+
+        The reconciliation process ensures eventual consistency between the local store
+        and the primary store.
+
+        Raises:
+            Exception: Logs any exceptions encountered while contacting the primary store.
+        """
         import time
         while True:
             time.sleep(10)
@@ -147,7 +157,6 @@ class SimpleStore:
             except Exception:
                 pass
 
-# initialize
 store = SimpleStore(LOG_PATH)
 app   = Flask(__name__)
 
@@ -174,6 +183,16 @@ def write_key(key):
 
 @app.route("/store/<key>/increment", methods=["POST"])
 def increment_key(key):
+    """
+    Increment the value of a given key in the store.
+
+    Args:
+        key (str): The key whose value should be incremented.
+
+    Returns:
+        Response: A JSON object containing the key and its new value with a 201 Created status.
+        Example: {"key": "example_key", "value": "new_value"}
+    """
     new_val = store.increment(key)
     return jsonify({"key": key, "value": str(new_val)}), 201
 
@@ -215,5 +234,4 @@ def delete_key(key):
     return "", 204
 
 if __name__ == "__main__":
-    # listen on all interfaces for Docker
     app.run(host="0.0.0.0", port=STORE_PORT)

@@ -1,23 +1,16 @@
-# api/app.py
-
 import os
-
 import requests
 from flask import Flask, jsonify, abort
-
 from shard import ConsistentHash
 
 app = Flask(__name__)
 
-# ─── Configuration ─────────────────────────────────────────────────────────
 STORE_NODES      = [n for n in os.getenv("STORE_NODES", "").split(",") if n]
 SECONDARY_NODES  = [n for n in os.getenv("STORE_SECONDARIES", "").split(",") if n]
 QUEUE_URL        = os.getenv("QUEUE_URL",   "http://queue:7000/enqueue")
 
-# Build the consistent-hash ring for sharding
 ring = ConsistentHash(STORE_NODES)
 
-# ─── Health Check ──────────────────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
     """
@@ -28,7 +21,6 @@ def health():
     """
     return jsonify({"status": "api up"}), 200
 
-# ─── Read Endpoint ─────────────────────────────────────────────────────────
 @app.route("/counter/<key>", methods=["GET"])
 def get_counter(key):
     """
@@ -60,7 +52,6 @@ def get_counter(key):
     resp.raise_for_status()
     return jsonify(resp.json()), 200
 
-# ─── Write Endpoint (enqueue) ──────────────────────────────────────────────
 @app.route("/counter/<key>/increment", methods=["POST"])
 def increment_counter(key):
     """
@@ -76,14 +67,11 @@ def increment_counter(key):
     Raises:
         429: If the queue system is full or rate-limited.
     """
-    # send job {action, key} to the queue
     resp = requests.post(QUEUE_URL, json={"action": "increment", "key": key})
     if resp.status_code == 429:
         abort(429, description="Too many requests – queue is full")
     resp.raise_for_status()
     return jsonify({"status": "queued", "key": key}), 202
 
-# ─── Launch ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Bind explicitly to 8000 so Docker mapping works correctly
     app.run(host="0.0.0.0", port=8000)
