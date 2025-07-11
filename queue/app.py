@@ -48,6 +48,20 @@ KEY_TIMESTAMPS = defaultdict(list)  # For per-key rate limiting
 
 @app.route("/enqueue", methods=["POST"])
 def enqueue():
+    """
+    Handle POST requests to enqueue a job.
+
+    A job must contain a 'key' and an 'action'. This endpoint handles:
+    - Rate limiting per key over a 10-second sliding window.
+    - Adding jobs to the main queue or, if over the rate limit, to the excess queue.
+    - Rejecting requests if both the main and excess queues are full.
+
+    Returns:
+        Response: JSON indicating the result ("enqueued" or "sidelined:rate").
+    Raises:
+        400: If required fields are missing.
+        429: If the queue or excess queue is full.
+    """
     job = request.get_json()
     if not job or "action" not in job or "key" not in job:
         abort(400, description="Must provide JSON with 'action' and 'key'")
@@ -57,11 +71,9 @@ def enqueue():
     key = job["key"]
     now = time.time()
 
-    # Clean old timestamps (older than 10s)
     KEY_TIMESTAMPS[key] = [t for t in KEY_TIMESTAMPS[key] if now - t < 10]
     KEY_TIMESTAMPS[key].append(now)
     timestamps = KEY_TIMESTAMPS[key]
-    logging.log(logging.WARNING, f"length of timestamps with {key} = {len(timestamps)}")
 
     if len(timestamps) > MAX_KEY_RATE:
         with LOCK:
@@ -80,6 +92,12 @@ def enqueue():
 
 
 def worker():
+    """
+    Background worker thread that processes jobs from the main queue.
+
+    - Skips jobs that are too old and moves them to the stale queue.
+    - For valid jobs, routes them to the appropriate storage node using consistent hashing.
+    """
     while True:
         job = None
         with LOCK:
@@ -90,7 +108,6 @@ def worker():
             time.sleep(0.05)
             continue
 
-        # Age-based sidelining
         age = time.time() - job.get("timestamp", time.time())
         if age > STALE_THRESHOLD_SEC:
             with LOCK:
@@ -104,6 +121,14 @@ def worker():
 
 
 def process_job(job):
+    """
+    Process a single job by incrementing its value in the appropriate store node.
+
+    Args:
+        job (dict): The job to process. Must include 'key' and 'action'.
+
+    Logs errors if the storage request fails or the action is unsupported.
+    """
     action = job["action"]
     key = job["key"]
     if action != "increment":
@@ -129,6 +154,12 @@ def process_job(job):
         logging.exception(f"[worker] persist error ({key}@{node}): {e}")
 
 def excess_worker():
+    """
+    Background thread that retries jobs from the excess queue.
+
+    - Moves jobs from the excess queue to the main queue when there's capacity.
+    - Prevents loss of jobs that were sidelined due to per-key rate limits.
+    """
     while True:
         with LOCK:
             if len(QUEUE) < MAX_QUEUE_SIZE and EXCESS_QUEUE:
@@ -139,6 +170,13 @@ def excess_worker():
 
 
 def stale_worker():
+    """
+    Background thread that retries stale jobs.
+
+    - Retries jobs in the stale queue up to MAX_STALE_RETRIES.
+    - Drops jobs that exceed the retry limit.
+    - Adds delay (backoff) to reduce system pressure.
+    """
     while True:
         job = None
         with LOCK:
@@ -154,7 +192,6 @@ def stale_worker():
             logging.warning(f"Dropping stale job key={job['key']} after {job['retries']} retries")
             continue
 
-        # Optional: sleep to reduce pressure (backoff)
         time.sleep(0.2)
 
         process_job(job)

@@ -18,11 +18,31 @@ ring = ConsistentHash(STORE_NODES)
 # ─── Health Check ──────────────────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
+    """
+    Health check endpoint.
+
+    Returns:
+        JSON: {"status": "api up"} with 200 OK.
+    """
     return jsonify({"status": "api up"}), 200
 
 # ─── Read Endpoint ─────────────────────────────────────────────────────────
 @app.route("/counter/<key>", methods=["GET"])
 def get_counter(key):
+    """
+    Fetch the counter value for a given key.
+
+    Uses consistent hashing to route to the correct store node.
+    Falls back to a secondary node if the primary is unreachable.
+
+    Args:
+        key (str): The key to look up.
+
+    Returns:
+        JSON: {"key": key, "value": value} with 200 OK.
+    Raises:
+        503: If the primary and secondary nodes are both unreachable.
+    """
     node = ring.get_node(key)
     idx = STORE_NODES.index(node) if node in STORE_NODES else -1
     secondary = SECONDARY_NODES[idx] if idx >= 0 and idx < len(SECONDARY_NODES) else None
@@ -41,6 +61,19 @@ def get_counter(key):
 # ─── Write Endpoint (enqueue) ──────────────────────────────────────────────
 @app.route("/counter/<key>/increment", methods=["POST"])
 def increment_counter(key):
+    """
+    Enqueue a request to increment the counter for a given key.
+
+    Sends a job to the queueing service for asynchronous processing.
+
+    Args:
+        key (str): The key to increment.
+
+    Returns:
+        JSON: {"status": "queued", "key": key} with 202 Accepted.
+    Raises:
+        429: If the queue system is full or rate-limited.
+    """
     # send job {action, key} to the queue
     resp = requests.post(QUEUE_URL, json={"action": "increment", "key": key})
     if resp.status_code == 429:
