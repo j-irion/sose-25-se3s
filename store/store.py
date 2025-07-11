@@ -1,9 +1,10 @@
 # store/store.py
 
-from flask import Flask, request, jsonify, abort
 import os
 import threading
+
 import requests
+from flask import Flask, request, jsonify, abort
 
 # Configuration via environment variables
 LOG_PATH        = os.getenv("LOG_PATH", "log.txt")

@@ -1,5 +1,7 @@
 # queue/shard.py
-import hashlib, bisect
+import bisect
+import hashlib
+
 
 class ConsistentHash:
     """

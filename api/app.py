@@ -1,8 +1,10 @@
 # api/app.py
 
-from flask import Flask, jsonify, abort
-import requests
 import os
+
+import requests
+from flask import Flask, jsonify, abort
+
 from shard import ConsistentHash
 
 app = Flask(__name__)

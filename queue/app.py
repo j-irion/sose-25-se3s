@@ -1,10 +1,15 @@
 # queue/app.py
 
-from flask import Flask, request, jsonify, abort
-import threading, time, os, requests
-from shard import ConsistentHash
-from collections import defaultdict, deque
 import logging
+import os
+import requests
+import threading
+import time
+from collections import defaultdict, deque
+
+from flask import Flask, request, jsonify, abort
+
+from shard import ConsistentHash
 
 app = Flask(__name__)
 
