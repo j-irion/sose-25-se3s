@@ -1,4 +1,5 @@
 # sose-25-se3s Prototyping Assignment
+by Julius Irion (456782) and Johannes Marold (393090)
 
 A sharded, replicated, and resilient **scalable counter system**.
 

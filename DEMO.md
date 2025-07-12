@@ -1,6 +1,6 @@
 # SE3S Assignment Demo
 
-by Julius Irion (456782) and Johannes Marold (XXXX)
+by Julius Irion (456782) and Johannes Marold (393090)
 
 ## 0. Setup
 We recommend opening two terminal windows or `tmux` panes for this demo. This enables us to view the logs while sending requests. We will label each command with `# T1` and `# T2` depending on which terminal it should be run in.
@@ -9,7 +9,7 @@ Firstly we shut down any existing containers and start the demo environment:
 ```sh
 # T1
 docker compose down
-MAX_QUEUE_SIZE=100 WORKER_COUNT=1 SPILLOVER_QUEUE_SIZE=100 MAX_KEY_RATE=50 docker compose up --build --remove-orphans # T1
+MAX_QUEUE_SIZE=100 WORKER_COUNT=1 SPILLOVER_QUEUE_SIZE=100 MAX_KEY_RATE=50 docker compose up --build --remove-orphans
 ```
 
 ## 1. Health Check
@@ -55,7 +55,7 @@ seq 1 200 \
       -X POST http://localhost:8000/counter/bar/increment \
   | sort | uniq -c 
 ```
-Expected output in terminal (exact values may very depending on how fast the jobs are processed by the worker):
+Expected output in terminal (exact values may vary depending on how fast the jobs are processed by the worker):
 ```sh
 150 202 # successfully accepted
 50 429 # rejected due to full queues
@@ -64,7 +64,7 @@ Expected output in terminal (exact values may very depending on how fast the job
 This should show a few log entries confirming staleness after 5 seconds:   
 ```sh
 # T2
-docker compose logs -f queue | grep "STALE_QUEUE" 
+docker compose logs queue | grep "STALE_QUEUE" 
 ```
 You can also check the logs for messages like: `[worker] sidelined key=bar to STALE_QUEUE (age 5.12s)`
 
@@ -84,9 +84,8 @@ seq 1 52 \
       -X POST http://localhost:8000/counter/hotkey/increment \
   | sort | uniq -c 
 
-# T2
 seq 1 5 \
-  | xargs -n1 -P10 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
+  | xargs -n1 -P5 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
       -X POST http://localhost:8000/counter/chill/increment \
   | sort | uniq -c
 ```
@@ -99,7 +98,7 @@ You should see output like:
 Use the logs to verify that only `hotkey` was rate-limited:
 ```sh
 # T2
-docker compose logs queue | grep "hotkey to EXCESS_QUEUE" # T2
+docker compose logs queue | grep "hotkey to EXCESS_QUEUE"
 ```
 This should show 2 log entries confirming spillover.
 
@@ -110,11 +109,11 @@ docker compose logs queue | grep "chill to EXCESS_QUEUE"
 ```
 
 ## 4. Tune queue & no more 429s
-By scaling the queues and workers, we can handle more requests without hitting the `429 Too Many Requests` error. This allows us to process all 200 requests successfully.
+By vertically scaling the queues and workers, we can handle more requests without hitting the `429 Too Many Requests` error. This allows us to process all 200 requests successfully.
 ```sh
 # T1 (use ctrl + c to stop the running containers first)
 docker compose down 
-MAX_QUEUE_SIZE=1000 SPILLOVER_QUEUE_SIZE=500 MAX_KEY_RATE=50 WORKER_COUNT=4 docker compose up --build --remove-orphans # T1
+MAX_QUEUE_SIZE=1000 SPILLOVER_QUEUE_SIZE=500 MAX_KEY_RATE=50 WORKER_COUNT=4 docker compose up --build --remove-orphans
 ```
 Now we can repeat the same test as before, but this time we should not see any `429` errors. Instead, all requests should be accepted with `202 Accepted`.
 ```sh
@@ -142,6 +141,7 @@ for i in $(seq 1 10); do
   curl -s -X POST http://localhost:8000/counter/B/increment &
 done
 wait
+sleep 1
 
 echo "A:"; curl http://localhost:8000/counter/A
 echo "B:"; curl http://localhost:8000/counter/B
@@ -237,7 +237,7 @@ First, stop any existing containers and start the environment with **3 API repli
 ```sh
 # T1 (use ctrl + c to stop the running containers first)
 docker compose down
-MAX_QUEUE_SIZE=1000 SPILLOVER_QUEUE_SIZE=500 MAX_KEY_RATE=50 WORKER_COUNT=4 docker compose up -d --scale api=3
+MAX_QUEUE_SIZE=1000 SPILLOVER_QUEUE_SIZE=500 MAX_KEY_RATE=50 WORKER_COUNT=4 docker compose up --scale api=3
 ```
 Confirm that 3 API containers are running:
 ```sh

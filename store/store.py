@@ -111,7 +111,15 @@ class SimpleStore:
         threading.Thread(target=self._replicate, args=(key, value), daemon=True).start()
 
     def increment(self, key, delta=1):
-        """Atomically increment a key by ``delta``."""
+        """Atomically increment a key by ``delta``.
+
+        Args:
+            key (str): The key to increment.
+            delta (int, optional): The amount to increment by. Defaults to 1.
+
+        Returns:
+            int: The new value after incrementing.
+        """
         with STORE_LOCK:
             current = int(self.data.get(key, "0"))
             new_value = current + delta
