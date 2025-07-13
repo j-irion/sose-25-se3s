@@ -1,0 +1,70 @@
+services:
+  store1-primary:
+    build: ./store
+    environment:
+      - LOG_PATH=log1.txt
+      - SECONDARIES=http://store1-secondary:9000
+    ports:
+      - '9000:9000'
+
+  store1-secondary:
+    build: ./store
+    environment:
+      - LOG_PATH=log1-secondary.txt
+      - PRIMARY_URL=http://store1-primary:9000
+    ports:
+      - '9010:9000'
+
+  store2-primary:
+    build: ./store
+    environment:
+      - LOG_PATH=log2.txt
+      - SECONDARIES=http://store2-secondary:9000
+    ports:
+      - '9001:9000'
+
+  store2-secondary:
+    build: ./store
+    environment:
+      - LOG_PATH=log2-secondary.txt
+      - PRIMARY_URL=http://store2-primary:9000
+    ports:
+      - '9011:9000'
+
+  api:
+    build: ./api
+    depends_on:
+      - store1-primary
+      - store2-primary
+    environment:
+      - STORE_NODES=http://store1-primary:9000,http://store2-primary:9000
+      - STORE_SECONDARIES=http://store1-secondary:9000,http://store2-secondary:9000
+      - STORE_KEY=counter
+      - QUEUE_URL=http://queue:7000/enqueue
+    ports:
+      - '8000'
+
+  queue:
+    build: ./queue
+    depends_on:
+      - store1-primary
+      - store2-primary
+    environment:
+      - MAX_KEY_RATE=50
+      - STALE_THRESHOLD_SEC=5
+      - STORE_NODES=http://store1-primary:9000,http://store2-primary:9000
+      - STORE_KEY=counter
+      - QUEUE_URL=http://queue:7000/enqueue
+      - MAX_QUEUE_SIZE=${MAX_QUEUE_SIZE:-100}
+      - SPILLOVER_QUEUE_SIZE=${SPILLOVER_QUEUE_SIZE:-100}
+      - WORKER_COUNT=${WORKER_COUNT:-1}
+      - QUEUE_PORT=7000
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - '8000:80'
+    depends_on:
+      - api
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
